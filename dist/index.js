@@ -96280,7 +96280,7 @@ function publishTask() {
         var submissionResource = yield createAppSubmission();
         var submissionUrl = `https://developer.microsoft.com/en-us/dashboard/apps/${appId}/submissions/${submissionResource.id}`;
         console.log(`Submission ${submissionUrl} was created successfully`);
-        if (core.getInput("delete-packages")) {
+        if (core.getInput("delete-packages") === "true") {
             console.log("Deleting old packages...");
             api.deleteOldPackages(submissionResource.applicationPackages, core.getInput("packages-keep"));
         }
@@ -96296,7 +96296,7 @@ function publishTask() {
         }
         console.log("Committing submission...");
         yield commitAppSubmission(submissionResource.id);
-        if (core.getInput("skip-polling")) {
+        if (core.getInput("skip-polling") === "true") {
             console.log("Skip polling option is checked. Skipping polling...");
             console.log(`Click here ${submissionUrl} to check the status of the submission in Dev Center`);
         }
