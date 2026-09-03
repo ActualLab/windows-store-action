@@ -1,5 +1,5 @@
-﻿require("dotenv").config();
-import core from "@actions/core";
+require("dotenv").config();
+import * as core from "@actions/core";
 
 import fs = require("fs");
 import path = require("path");
@@ -42,10 +42,19 @@ const STRING_ARRAY_ATTRIBUTES = {
   recommendedhardware: true,
 };
 
-const packageExtensions = [".msix", ".msixbundle", ".msixupload", ".appx", ".appxbundle", ".appxupload", ".xap"];
+const packageExtensions = [
+  ".msix", ".msixbundle", ".msixupload", ".appx", ".appxbundle", ".appxupload", ".xap",
+];
+
+const MODES = ["publish", "upload", "commit"];
+const POLL_UNTIL = ["certification", "published"];
 
 /**
  * The main task function.
+ *
+ * mode=upload   creates a submission, uploads the packages and leaves it pending.
+ * mode=commit   takes the pending submission, applies release notes and commits it.
+ * mode=publish  does both in one go (the original behavior).
  */
 export async function publishTask() {
   /* We expect the endpoint part of this to not have a slash at the end.
@@ -54,13 +63,80 @@ export async function publishTask() {
   api.ROOT =
     "https://manage.devcenter.microsoft.com" + api.API_URL_VERSION_PART;
 
+  var mode = core.getInput("mode") || "publish";
+  if (MODES.indexOf(mode) < 0) {
+    throw new Error(`Unknown mode '${mode}'; expected one of ${MODES.join(", ")}`);
+  }
+  var pollUntil = core.getInput("poll-until") || "published";
+  if (POLL_UNTIL.indexOf(pollUntil) < 0) {
+    throw new Error(`Unknown poll-until '${pollUntil}'; expected one of ${POLL_UNTIL.join(", ")}`);
+  }
+
   var credentials = {
     tenant: core.getInput("tenant-id"),
     clientId: core.getInput("client-id"),
     clientSecret: core.getInput("client-secret"),
   };
 
-  var files = fs.readdirSync(core.getInput("package-path"));
+  console.log("Authenticating...");
+  currentToken = await request.authenticate(
+    "https://manage.devcenter.microsoft.com",
+    credentials
+  );
+  appId = core.getInput("app-id"); // Globally set app ID for future steps.
+
+  var submissionResource =
+    mode === "commit"
+      ? await getPendingSubmission()
+      : await createSubmissionWithPackages();
+
+  var submissionUrl = `https://developer.microsoft.com/en-us/dashboard/apps/${appId}/submissions/${submissionResource.id}`;
+  core.setOutput("submission-id", submissionResource.id);
+  core.setOutput("url", submissionUrl);
+
+  if (mode === "upload") {
+    console.log(`Packages are staged in pending submission ${submissionUrl}`);
+    console.log("Run this action with mode=commit to send it to certification");
+    return;
+  }
+
+  var releaseNotesPath = core.getInput("release-notes-path");
+  if (releaseNotesPath) {
+    console.log(`Applying release notes from ${releaseNotesPath}...`);
+    setReleaseNotes(submissionResource, fs.readFileSync(releaseNotesPath, "utf8").trim());
+    await putSubmission(submissionResource);
+  }
+
+  console.log("Committing submission...");
+  await commitAppSubmission(submissionResource.id);
+
+  if (core.getInput("skip-polling") === "true") {
+    console.log("Skip polling option is checked. Skipping polling...");
+    console.log(
+      `Click here ${submissionUrl} to check the status of the submission in Dev Center`
+    );
+  } else {
+    console.log(`Polling submission until ${pollUntil}...`);
+    var resourceLocation = `applications/${appId}/submissions/${submissionResource.id}`;
+    await api.pollSubmissionStatus(
+      currentToken,
+      resourceLocation,
+      submissionResource.targetPublishMode,
+      pollUntil === "certification"
+    );
+  }
+
+  console.log("Submission completed");
+}
+
+/**
+ * Creates a new submission (replacing the pending one when allowed), attaches the packages
+ * found in package-path and uploads them.
+ * @return Promises the new submission resource.
+ */
+async function createSubmissionWithPackages(): Promise<any> {
+  var packagePath = core.getInput("package-path");
+  var files = fs.readdirSync(packagePath);
 
   for (var i = 0; i < files.length; i++) {
     var file = files[i];
@@ -72,21 +148,17 @@ export async function publishTask() {
     }
   }
 
- packages = packages.map((file) => {
-    return path.join(core.getInput("package-path"), file);
+  packages = packages.map((file) => {
+    return path.join(packagePath, file);
   });
 
-  console.log("Authenticating...");
-  currentToken = await request.authenticate(
-    "https://manage.devcenter.microsoft.com",
-    credentials
-  );
-  appId = core.getInput("app-id"); // Globally set app ID for future steps.
+  if (core.getInput("delete-pending") !== "false") {
+    await deletePendingSubmission();
+  }
 
   console.log("Creating submission...");
   var submissionResource = await createAppSubmission();
-  var submissionUrl = `https://developer.microsoft.com/en-us/dashboard/apps/${appId}/submissions/${submissionResource.id}`;
-  console.log(`Submission ${submissionUrl} was created successfully`);
+  console.log(`Submission ${submissionResource.id} was created successfully`);
 
   if (core.getInput("delete-packages") === "true") {
     console.log("Deleting old packages...");
@@ -110,25 +182,56 @@ export async function publishTask() {
     await api.persistZip(zip, "temp.zip", submissionResource.fileUploadUrl);
   }
 
-  console.log("Committing submission...");
-  await commitAppSubmission(submissionResource.id);
+  return submissionResource;
+}
 
-  if (core.getInput("skip-polling") === "true") {
-    console.log("Skip polling option is checked. Skipping polling...");
-    console.log(
-      `Click here ${submissionUrl} to check the status of the submission in Dev Center`
-    );
-  } else {
-    console.log("Polling submission...");
-    var resourceLocation = `applications/${appId}/submissions/${submissionResource.id}`;
-    await api.pollSubmissionStatus(
-      currentToken,
-      resourceLocation,
-      submissionResource.targetPublishMode
+/**
+ * @return Promises the pending submission of the app; fails when there is none.
+ */
+async function getPendingSubmission(): Promise<any> {
+  var app = await getAppResource();
+  var pending = app.pendingApplicationSubmission;
+  if (!pending || !pending.id) {
+    throw new Error(
+      `App ${appId} has no pending submission; run this action with mode=upload first`
     );
   }
+  console.log(`Found pending submission ${pending.id}`);
+  return api.getSubmission(
+    currentToken,
+    api.ROOT + "applications/" + appId + "/submissions/" + pending.id
+  );
+}
 
-  console.log("Submission completed");
+/**
+ * Deletes the app's pending submission, if any. Submissions created in the Dev Center UI
+ * can't be deleted through the API; that error surfaces from the delete call.
+ */
+async function deletePendingSubmission(): Promise<void> {
+  var app = await getAppResource();
+  var pending = app.pendingApplicationSubmission;
+  if (!pending || !pending.id) {
+    return;
+  }
+  console.log(`Deleting pending submission ${pending.id}...`);
+  await deleteAppSubmission(`applications/${appId}/submissions/${pending.id}`);
+}
+
+/**
+ * Sets the release notes of every listing in the submission.
+ */
+function setReleaseNotes(submissionResource: any, releaseNotes: string): void {
+  var listings = submissionResource.listings || {};
+  var keys = Object.keys(listings);
+  if (keys.length === 0) {
+    throw new Error("The submission has no listings to attach release notes to");
+  }
+  keys.forEach((listingKey) => {
+    var listing = listings[listingKey];
+    listing.baseListing = listing.baseListing || {};
+    listing.baseListing.releaseNotes = releaseNotes;
+    console.log(`Release notes set for listing ${listingKey}`);
+  });
 }
 
 /**
@@ -233,6 +336,10 @@ function putMetadata(submissionResource: any): Q.Promise<void> {
     submissionResource.applicationPackages
   );
 
+  return putSubmission(submissionResource);
+}
+
+function putSubmission(submissionResource: any): Q.Promise<void> {
   var url =
     api.ROOT +
     "applications/" +

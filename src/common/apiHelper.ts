@@ -184,11 +184,13 @@ export function createZipFromPackages(packages: string[]) {
 export function pollSubmissionStatus(
   token: request.AccessToken,
   resourceLocation: string,
-  publishMode: string
+  publishMode: string,
+  stopAtCertification: boolean = false
 ): Q.Promise<void> {
-  const POLL_DELAY = 300000; // Delay 5 minutes between poll requests
+  // Pre-processing takes minutes, certification takes hours; poll accordingly.
+  const POLL_DELAY = stopAtCertification ? 60000 : 300000;
   var submissionCheckGenerator = () =>
-    checkSubmissionStatus(token, resourceLocation, publishMode);
+    checkSubmissionStatus(token, resourceLocation, publishMode, stopAtCertification);
   return request
     .withRetry(
       NUM_RETRIES,
@@ -204,7 +206,7 @@ export function pollSubmissionStatus(
       } else {
         return Q.delay(POLL_DELAY)
           .then(() =>
-            pollSubmissionStatus(token, resourceLocation, publishMode)
+            pollSubmissionStatus(token, resourceLocation, publishMode, stopAtCertification)
           )
           .catch((err) => {
             console.log(err);
@@ -223,7 +225,8 @@ export function pollSubmissionStatus(
 function checkSubmissionStatus(
   token: request.AccessToken,
   resourceLocation: string,
-  publishMode: string
+  publishMode: string,
+  stopAtCertification: boolean
 ): Q.Promise<boolean> {
   const statusMsg = `Submission status for "${resourceLocation}"`;
   const requestParams = {
@@ -241,10 +244,14 @@ function checkSubmissionStatus(
         console.log(msg);
 
         /* In immediate mode, we expect to get all the way to "Published" status.
-         * In other modes, we stop at "Release" status. */
+         * In other modes, we stop at "Release" status.
+         * "Certification" means pre-processing accepted the packages; callers that only
+         * want to know the commit was valid stop there. */
         return (
           body.status == "Published" ||
-          (body.status == "Release" && publishMode != "Immediate")
+          (body.status == "Release" && publishMode != "Immediate") ||
+          (stopAtCertification &&
+            (body.status == "Certification" || body.status == "Release"))
         );
       } else {
         console.error(statusMsg + " failed with " + body.status);
@@ -272,6 +279,26 @@ export function getAppResource(
   console.debug(`Getting app resource from ID ${appId}`);
   var requestParams = {
     url: ROOT + "applications/" + appId,
+    method: "GET",
+  };
+
+  var getGenerator = () =>
+    request.performAuthenticatedRequest<any>(token, requestParams);
+  return request.withRetry(NUM_RETRIES, getGenerator, (err) =>
+    request.isRetryableError(err)
+  );
+}
+
+/**
+ * @return Promises the submission resource at the given url.
+ */
+export function getSubmission(
+  token: request.AccessToken,
+  url: string
+): Q.Promise<any> {
+  console.debug(`Getting submission at ${url}`);
+  var requestParams = {
+    url: url,
     method: "GET",
   };
 

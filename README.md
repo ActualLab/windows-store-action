@@ -56,6 +56,12 @@ This action allows you to publish your app on the Store by creating a submission
 
 * Additional package(s) (*string, optional*) - A list of paths, one per line, of additional packages that your app needs, for example to support multiple platforms. Each individual path supports Minimatch pattern.
 
+* Mode (*string*, default `publish`) - `publish` creates a submission, uploads the packages and commits it. `upload` stops before the commit and leaves the submission pending in Partner Center, so a later run with `commit` can send exactly that package to certification (for example after the build has been tested). `commit` takes the app's pending submission, applies the release notes and commits it; it needs no package path.
+
+* Release notes path (*string, optional*) - Path to a text file; its content is written into the release notes of every listing before the commit (`publish` and `commit` modes).
+
+* Poll until (*string*, default `published`) - `published` polls until the submission is live (hours). `certification` returns as soon as pre-processing accepted the packages, which is enough to know the commit was valid.
+
 * Skip polling (*boolean*) - If checked, will skip polling the submission after committing it to Dev Center. Otherwise, it will keep polling the submission till it gets published (which typically takes around 2 hours). **Warning**: If you set this to true, you will not see errors, if any, that your submission may run into. You will have to manually check the status of your submission in Dev Center.
 
 * Delete Packages (*boolean, optional*) - If checked, will enable deletion of one or more old packages (sorted by version). Checking this box will enable a dropdown "Number of packages to keep" explained in following point. If not checked, will not delete any old package.
