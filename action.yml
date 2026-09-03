@@ -1,6 +1,6 @@
 name: 'Windows Store Publish'
 author: 'Isaac Levin'
-description: 'Greet someone and record the time'
+description: 'Upload MSIX packages to a Partner Center submission and/or commit it to certification'
 inputs:
   tenant-id:
     description: 'Id of Partner Tenant'
@@ -14,6 +14,23 @@ inputs:
   app-id:
     description: 'Id for App in Partner Center'
     required: true
+  mode:
+    description: >-
+      publish: create a submission, upload the packages and commit it (default).
+      upload: create a submission and upload the packages, but leave it pending.
+      commit: apply release notes to the pending submission and commit it.
+    required: false
+    default: 'publish'
+  release-notes-path:
+    description: 'Path to a text file whose content becomes the release notes of every listing (publish/commit modes)'
+    required: false
+    default: ''
+  poll-until:
+    description: >-
+      When polling: 'published' waits for the submission to go live,
+      'certification' returns as soon as pre-processing accepted the packages
+    required: false
+    default: 'published'
   delete-pending:
     description: 'Delete any pending submissions in Partner Center'
     required: false
@@ -39,10 +56,12 @@ inputs:
     required: false
     default: 'false'
 outputs:
-  url: # id of output
-    description: 'URl to Partner Dashboard'
+  submission-id:
+    description: 'Id of the submission that was created or committed'
+  url:
+    description: 'URL of the submission in the Partner Center dashboard'
 runs:
-  using: 'node12'
+  using: 'node20'
   main: 'dist/index.js'
 branding:
   icon: 'upload-cloud'
