@@ -246,12 +246,14 @@ function checkSubmissionStatus(
         /* In immediate mode, we expect to get all the way to "Published" status.
          * In other modes, we stop at "Release" status.
          * "Certification" means pre-processing accepted the packages; callers that only
-         * want to know the commit was valid stop there. */
+         * want to know the commit was valid stop there or at any later stage. */
         return (
           body.status == "Published" ||
           (body.status == "Release" && publishMode != "Immediate") ||
           (stopAtCertification &&
-            (body.status == "Certification" || body.status == "Release"))
+            (body.status == "Certification" ||
+              body.status == "Release" ||
+              body.status == "Publishing"))
         );
       } else {
         console.error(statusMsg + " failed with " + body.status);

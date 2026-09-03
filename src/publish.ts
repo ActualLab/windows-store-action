@@ -186,7 +186,8 @@ async function createSubmissionWithPackages(): Promise<any> {
 }
 
 /**
- * @return Promises the pending submission of the app; fails when there is none.
+ * @return Promises the pending submission of the app; fails when there is none, when it
+ * isn't the one named by submission-id, or when it doesn't carry the expected package.
  */
 async function getPendingSubmission(): Promise<any> {
   var app = await getAppResource();
@@ -197,10 +198,31 @@ async function getPendingSubmission(): Promise<any> {
     );
   }
   console.log(`Found pending submission ${pending.id}`);
-  return api.getSubmission(
+
+  var expectedId = core.getInput("submission-id");
+  if (expectedId && expectedId !== pending.id) {
+    throw new Error(
+      `The pending submission is ${pending.id}, not ${expectedId}; a later upload replaced it`
+    );
+  }
+
+  var submissionResource = await api.getSubmission(
     currentToken,
     api.ROOT + "applications/" + appId + "/submissions/" + pending.id
   );
+
+  var pendingPackages = (submissionResource.applicationPackages || [])
+    .filter((p: { fileStatus: string }) => p.fileStatus === "PendingUpload")
+    .map((p: { fileName: string }) => p.fileName);
+  console.log(`Packages awaiting certification: ${pendingPackages.join(", ") || "(none)"}`);
+
+  var expectedPackage = core.getInput("expected-package");
+  if (expectedPackage && !pendingPackages.some((name: string) => name.indexOf(expectedPackage) >= 0)) {
+    throw new Error(
+      `No pending package matches '${expectedPackage}'; the submission holds a different build`
+    );
+  }
+  return submissionResource;
 }
 
 /**

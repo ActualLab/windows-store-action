@@ -25,9 +25,18 @@ inputs:
     description: 'Path to a text file whose content becomes the release notes of every listing (publish/commit modes)'
     required: false
     default: ''
+  submission-id:
+    description: 'commit mode: fail unless the pending submission has this id (the submission-id output of the upload run)'
+    required: false
+    default: ''
+  expected-package:
+    description: 'commit mode: fail unless a package awaiting certification has this text in its file name (e.g. App.Maui_2.17.246.0_x64.msix)'
+    required: false
+    default: ''
   poll-until:
     description: >-
-      When polling: 'published' waits for the submission to go live,
+      When polling: 'published' waits for the submission to go live (for Manual and
+      Scheduled publish modes it returns at the Release stage, as before);
       'certification' returns as soon as pre-processing accepted the packages
     required: false
     default: 'published'

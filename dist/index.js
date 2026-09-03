@@ -96043,11 +96043,13 @@ function checkSubmissionStatus(token, resourceLocation, publishMode, stopAtCerti
             /* In immediate mode, we expect to get all the way to "Published" status.
              * In other modes, we stop at "Release" status.
              * "Certification" means pre-processing accepted the packages; callers that only
-             * want to know the commit was valid stop there. */
+             * want to know the commit was valid stop there or at any later stage. */
             return (body.status == "Published" ||
                 (body.status == "Release" && publishMode != "Immediate") ||
                 (stopAtCertification &&
-                    (body.status == "Certification" || body.status == "Release")));
+                    (body.status == "Certification" ||
+                        body.status == "Release" ||
+                        body.status == "Publishing")));
         }
         else {
             console.error(statusMsg + " failed with " + body.status);
@@ -96712,7 +96714,8 @@ function createSubmissionWithPackages() {
     });
 }
 /**
- * @return Promises the pending submission of the app; fails when there is none.
+ * @return Promises the pending submission of the app; fails when there is none, when it
+ * isn't the one named by submission-id, or when it doesn't carry the expected package.
  */
 function getPendingSubmission() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -96722,7 +96725,20 @@ function getPendingSubmission() {
             throw new Error(`App ${appId} has no pending submission; run this action with mode=upload first`);
         }
         console.log(`Found pending submission ${pending.id}`);
-        return api.getSubmission(currentToken, api.ROOT + "applications/" + appId + "/submissions/" + pending.id);
+        var expectedId = core.getInput("submission-id");
+        if (expectedId && expectedId !== pending.id) {
+            throw new Error(`The pending submission is ${pending.id}, not ${expectedId}; a later upload replaced it`);
+        }
+        var submissionResource = yield api.getSubmission(currentToken, api.ROOT + "applications/" + appId + "/submissions/" + pending.id);
+        var pendingPackages = (submissionResource.applicationPackages || [])
+            .filter((p) => p.fileStatus === "PendingUpload")
+            .map((p) => p.fileName);
+        console.log(`Packages awaiting certification: ${pendingPackages.join(", ") || "(none)"}`);
+        var expectedPackage = core.getInput("expected-package");
+        if (expectedPackage && !pendingPackages.some((name) => name.indexOf(expectedPackage) >= 0)) {
+            throw new Error(`No pending package matches '${expectedPackage}'; the submission holds a different build`);
+        }
+        return submissionResource;
     });
 }
 /**
