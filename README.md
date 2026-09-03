@@ -58,9 +58,11 @@ This action allows you to publish your app on the Store by creating a submission
 
 * Mode (*string*, default `publish`) - `publish` creates a submission, uploads the packages and commits it. `upload` stops before the commit and leaves the submission pending in Partner Center, so a later run with `commit` can send exactly that package to certification (for example after the build has been tested). `commit` takes the app's pending submission, applies the release notes and commits it; it needs no package path.
 
+* Submission id / Expected package (*string, optional*) - Guards for `commit` mode. Only one submission can be pending per app and a later `upload` replaces it, so pass the `submission-id` output of the upload run and/or a fragment of the package file name (`App.Maui_2.17.246.0_x64.msix`); the commit fails instead of certifying a different build.
+
 * Release notes path (*string, optional*) - Path to a text file; its content is written into the release notes of every listing before the commit (`publish` and `commit` modes).
 
-* Poll until (*string*, default `published`) - `published` polls until the submission is live (hours). `certification` returns as soon as pre-processing accepted the packages, which is enough to know the commit was valid.
+* Poll until (*string*, default `published`) - `published` polls until the submission is live (hours); for Manual and Scheduled publish modes it returns at the Release stage, as the action always did. `certification` returns as soon as pre-processing accepted the packages (or any later stage), which is enough to know the commit was valid.
 
 * Skip polling (*boolean*) - If checked, will skip polling the submission after committing it to Dev Center. Otherwise, it will keep polling the submission till it gets published (which typically takes around 2 hours). **Warning**: If you set this to true, you will not see errors, if any, that your submission may run into. You will have to manually check the status of your submission in Dev Center.
 
