@@ -95860,7 +95860,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.persistZip = exports.updatePackageDeliveryOptions = exports.commitSubmission = exports.putSubmission = exports.createSubmission = exports.deleteSubmission = exports.getSubmission = exports.getAppResource = exports.pollSubmissionStatus = exports.createZipFromPackages = exports.includePackagesInSubmission = exports.deleteOldPackages = exports.MAX_PACKAGES_PER_GROUP = exports.NUM_RETRIES = exports.ROOT = exports.API_URL_VERSION_PART = void 0;
+exports.persistZip = exports.updatePackageDeliveryOptions = exports.commitSubmission = exports.putSubmission = exports.createSubmission = exports.deleteSubmission = exports.getSubmission = exports.getAppResource = exports.getSubmissionStatus = exports.pollSubmissionStatus = exports.createZipFromPackages = exports.includePackagesInSubmission = exports.deleteOldPackages = exports.MAX_PACKAGES_PER_GROUP = exports.NUM_RETRIES = exports.ROOT = exports.API_URL_VERSION_PART = void 0;
 const request = __nccwpck_require__(6505);
 const fs = __nccwpck_require__(9896);
 const path = __nccwpck_require__(6928);
@@ -96066,6 +96066,21 @@ function checkSubmissionStatus(token, resourceLocation, publishMode, stopAtCerti
         throw new Error(COMMIT_FAILED_MSG);
     });
 }
+/**
+ * @return Promises the status of the submission at the given location
+ * (PendingCommit, CommitStarted, PreProcessing, Certification, Release, ...).
+ */
+function getSubmissionStatus(token, resourceLocation) {
+    var requestParams = {
+        url: exports.ROOT + resourceLocation + "/status",
+        method: "GET",
+    };
+    var getGenerator = () => request.performAuthenticatedRequest(token, requestParams);
+    return request
+        .withRetry(exports.NUM_RETRIES, getGenerator, (err) => request.isRetryableError(err))
+        .then((body) => body.status);
+}
+exports.getSubmissionStatus = getSubmissionStatus;
 /**
  * @return Promises the resource associated with the application given to the task.
  */
@@ -96606,6 +96621,11 @@ const packageExtensions = [
     ".msix", ".msixbundle", ".msixupload", ".appx", ".appxbundle", ".appxupload", ".xap",
 ];
 const MODES = ["publish", "upload", "commit"];
+/** Submission statuses that mean the submission was never committed, or its commit was rejected. */
+const UNCOMMITTED_STATUSES = [
+    "None", "Canceled", "PendingCommit", "CommitFailed", "PreProcessingFailed",
+    "CertificationFailed", "ReleaseFailed",
+];
 const POLL_UNTIL = ["certification", "published"];
 /**
  * The main task function.
@@ -96729,6 +96749,10 @@ function getPendingSubmission() {
         if (expectedId && expectedId !== pending.id) {
             throw new Error(`The pending submission is ${pending.id}, not ${expectedId}; a later upload replaced it`);
         }
+        var status = yield getSubmissionStatus(pending.id);
+        if (UNCOMMITTED_STATUSES.indexOf(status) < 0) {
+            throw new Error(`Submission ${pending.id} is already committed (status ${status}); nothing to commit`);
+        }
         var submissionResource = yield api.getSubmission(currentToken, api.ROOT + "applications/" + appId + "/submissions/" + pending.id);
         var pendingPackages = (submissionResource.applicationPackages || [])
             .filter((p) => p.fileStatus === "PendingUpload")
@@ -96742,8 +96766,10 @@ function getPendingSubmission() {
     });
 }
 /**
- * Deletes the app's pending submission, if any. Submissions created in the Dev Center UI
- * can't be deleted through the API; that error surfaces from the delete call.
+ * Deletes the app's pending submission, if any. A submission that is already committed
+ * (pre-processing, certification, release) counts as pending too, but deleting it would
+ * pull that build out of certification, so the task fails instead. Submissions created in
+ * the Dev Center UI can't be deleted through the API; that error surfaces from the delete call.
  */
 function deletePendingSubmission() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -96752,9 +96778,20 @@ function deletePendingSubmission() {
         if (!pending || !pending.id) {
             return;
         }
-        console.log(`Deleting pending submission ${pending.id}...`);
+        var status = yield getSubmissionStatus(pending.id);
+        if (UNCOMMITTED_STATUSES.indexOf(status) < 0) {
+            throw new Error(`Submission ${pending.id} is in status ${status}, i.e. already committed; ` +
+                `wait for it to be published, or cancel it in Partner Center, before uploading a new build`);
+        }
+        console.log(`Deleting pending submission ${pending.id} (${status})...`);
         yield deleteAppSubmission(`applications/${appId}/submissions/${pending.id}`);
     });
+}
+/**
+ * @return Promises the status of the given submission of the app.
+ */
+function getSubmissionStatus(submissionId) {
+    return api.getSubmissionStatus(currentToken, `applications/${appId}/submissions/${submissionId}`);
 }
 /**
  * Sets the release notes of every listing in the submission.

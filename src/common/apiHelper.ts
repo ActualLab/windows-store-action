@@ -272,6 +272,26 @@ function checkSubmissionStatus(
 }
 
 /**
+ * @return Promises the status of the submission at the given location
+ * (PendingCommit, CommitStarted, PreProcessing, Certification, Release, ...).
+ */
+export function getSubmissionStatus(
+  token: request.AccessToken,
+  resourceLocation: string
+): Q.Promise<string> {
+  var requestParams = {
+    url: ROOT + resourceLocation + "/status",
+    method: "GET",
+  };
+
+  var getGenerator = () =>
+    request.performAuthenticatedRequest<any>(token, requestParams);
+  return request
+    .withRetry(NUM_RETRIES, getGenerator, (err) => request.isRetryableError(err))
+    .then((body) => body.status as string);
+}
+
+/**
  * @return Promises the resource associated with the application given to the task.
  */
 export function getAppResource(

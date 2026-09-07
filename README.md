@@ -50,7 +50,7 @@ This action allows you to publish your app on the Store by creating a submission
 
 * Application ID (*string, required*) - The identification for the app. Depending on your selection, this should be either the app ID (visible in the URL of the app's page on Dev Center) or the app primary name (visible on the app's page on Dev Center).
 
-* Delete pending submissions (*bool*) - If checked, will attempt to delete any in-progress submission before starting a new one. Note that only one submission at a time can be pending. Therefore, if this box is not checked and a submission is already pending, the task will fail. Furthermore, submissions created on the Dev Center UI cannot be deleted automatically by the task.
+* Delete pending submissions (*bool*) - If checked, will attempt to delete any in-progress submission before starting a new one. Note that only one submission at a time can be pending. Therefore, if this box is not checked and a submission is already pending, the task will fail. Only an uncommitted submission (status `PendingCommit`, or a failed commit) is deleted: if the pending submission is already committed — in pre-processing, certification or release — the task fails rather than pulling that build out of certification; wait for it to publish or cancel it in Partner Center first. Furthermore, submissions created on the Dev Center UI cannot be deleted automatically by the task.
 
 * Package path (*string, optional*) - Path to your app's main package (usually a file in .appx, .xap or .appxbundle format). Minimatch pattern is supported.
 
