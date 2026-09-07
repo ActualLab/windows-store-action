@@ -47,6 +47,12 @@ const packageExtensions = [
 ];
 
 const MODES = ["publish", "upload", "commit"];
+
+/** Submission statuses that mean the submission was never committed, or its commit was rejected. */
+const UNCOMMITTED_STATUSES = [
+  "None", "Canceled", "PendingCommit", "CommitFailed", "PreProcessingFailed",
+  "CertificationFailed", "ReleaseFailed",
+];
 const POLL_UNTIL = ["certification", "published"];
 
 /**
@@ -206,6 +212,13 @@ async function getPendingSubmission(): Promise<any> {
     );
   }
 
+  var status = await getSubmissionStatus(pending.id);
+  if (UNCOMMITTED_STATUSES.indexOf(status) < 0) {
+    throw new Error(
+      `Submission ${pending.id} is already committed (status ${status}); nothing to commit`
+    );
+  }
+
   var submissionResource = await api.getSubmission(
     currentToken,
     api.ROOT + "applications/" + appId + "/submissions/" + pending.id
@@ -226,8 +239,10 @@ async function getPendingSubmission(): Promise<any> {
 }
 
 /**
- * Deletes the app's pending submission, if any. Submissions created in the Dev Center UI
- * can't be deleted through the API; that error surfaces from the delete call.
+ * Deletes the app's pending submission, if any. A submission that is already committed
+ * (pre-processing, certification, release) counts as pending too, but deleting it would
+ * pull that build out of certification, so the task fails instead. Submissions created in
+ * the Dev Center UI can't be deleted through the API; that error surfaces from the delete call.
  */
 async function deletePendingSubmission(): Promise<void> {
   var app = await getAppResource();
@@ -235,8 +250,25 @@ async function deletePendingSubmission(): Promise<void> {
   if (!pending || !pending.id) {
     return;
   }
-  console.log(`Deleting pending submission ${pending.id}...`);
+  var status = await getSubmissionStatus(pending.id);
+  if (UNCOMMITTED_STATUSES.indexOf(status) < 0) {
+    throw new Error(
+      `Submission ${pending.id} is in status ${status}, i.e. already committed; ` +
+        `wait for it to be published, or cancel it in Partner Center, before uploading a new build`
+    );
+  }
+  console.log(`Deleting pending submission ${pending.id} (${status})...`);
   await deleteAppSubmission(`applications/${appId}/submissions/${pending.id}`);
+}
+
+/**
+ * @return Promises the status of the given submission of the app.
+ */
+function getSubmissionStatus(submissionId: string): Q.Promise<string> {
+  return api.getSubmissionStatus(
+    currentToken,
+    `applications/${appId}/submissions/${submissionId}`
+  );
 }
 
 /**
