@@ -50,13 +50,13 @@ This action allows you to publish your app on the Store by creating a submission
 
 * Application ID (*string, required*) - The identification for the app. Depending on your selection, this should be either the app ID (visible in the URL of the app's page on Dev Center) or the app primary name (visible on the app's page on Dev Center).
 
-* Delete pending submissions (*bool*) - If checked, will attempt to delete any in-progress submission before starting a new one. Note that only one submission at a time can be pending. Therefore, if this box is not checked and a submission is already pending, the task will fail. Furthermore, submissions created on the Dev Center UI cannot be deleted automatically by the task.
+* Delete pending submissions (*bool*) - If checked, will attempt to delete any in-progress submission before starting a new one. Note that only one submission at a time can be pending. Therefore, if this box is not checked and a submission is already pending, the task will fail. Furthermore, submissions created on the Dev Center UI cannot be deleted automatically by the task. A pending submission whose store listings (text or images in any language) differ from the last published submission isn't deleted either: the task fails instead, so listing edits made in Partner Center are never discarded.
 
 * Package path (*string, optional*) - Path to your app's main package (usually a file in .appx, .xap or .appxbundle format). Minimatch pattern is supported.
 
 * Additional package(s) (*string, optional*) - A list of paths, one per line, of additional packages that your app needs, for example to support multiple platforms. Each individual path supports Minimatch pattern.
 
-* Mode (*string*, default `publish`) - `publish` creates a submission, uploads the packages and commits it. `upload` stops before the commit and leaves the submission pending in Partner Center, so a later run with `commit` can send exactly that package to certification (for example after the build has been tested). `commit` takes the app's pending submission, applies the release notes and commits it; it needs no package path.
+* Mode (*string*, default `publish`) - `publish` creates a submission, uploads the packages and commits it. `upload` stops before the commit and leaves the submission pending in Partner Center, so a later run with `commit` can send exactly that package to certification (for example after the build has been tested). `commit` takes the app's pending submission, applies the release notes and commits it; it needs no package path. Before committing (`commit` and `publish`), the task checks that every listing language of the last published submission is still there, with screenshots of every type it had, and fails without committing otherwise.
 
 * Submission id / Expected package (*string, optional*) - Guards for `commit` mode. Only one submission can be pending per app and a later `upload` replaces it, so pass the `submission-id` output of the upload run and/or a fragment of the package file name (`App.Maui_2.17.246.0_x64.msix`); the commit fails instead of certifying a different build.
 
