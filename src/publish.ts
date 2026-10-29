@@ -100,6 +100,8 @@ export async function publishTask() {
     return;
   }
 
+  await ensureListingsKept(submissionResource);
+
   var releaseNotesPath = core.getInput("release-notes-path");
   if (releaseNotesPath) {
     console.log(`Applying release notes from ${releaseNotesPath}...`);
@@ -235,6 +237,17 @@ async function deletePendingSubmission(): Promise<void> {
   if (!pending || !pending.id) {
     return;
   }
+  var published = await getPublishedSubmission();
+  var pendingResource = await api.getSubmission(
+    currentToken,
+    api.ROOT + "applications/" + appId + "/submissions/" + pending.id
+  );
+  if (published && listingsFingerprint(pendingResource) !== listingsFingerprint(published)) {
+    throw new Error(
+      `Pending submission ${pending.id} has store listing edits that aren't published yet; ` +
+        "commit it or discard it in Partner Center, then re-run"
+    );
+  }
   console.log(`Deleting pending submission ${pending.id}...`);
   await deleteAppSubmission(`applications/${appId}/submissions/${pending.id}`);
 }
@@ -272,6 +285,82 @@ function createAppSubmission(): Q.Promise<any> {
  */
 function deleteAppSubmission(submissionLocation: string): Q.Promise<void> {
   return api.deleteSubmission(currentToken, api.ROOT + submissionLocation);
+}
+
+/**
+ * @return Promises the app's last published submission, or null before the first one.
+ */
+async function getPublishedSubmission(): Promise<any> {
+  var app = await getAppResource();
+  var published = app.lastPublishedApplicationSubmission;
+  if (!published || !published.id) {
+    return null;
+  }
+  return api.getSubmission(
+    currentToken,
+    api.ROOT + "applications/" + appId + "/submissions/" + published.id
+  );
+}
+
+/** Image types whose presence in a listing is checked before a commit. */
+const SCREENSHOT_TYPES = ["Screenshot", "MobileScreenshot", "XboxScreenshot", "SurfaceHubScreenshot", "HoloLensScreenshot"];
+
+function liveImages(listing: any): any[] {
+  return ((listing && listing.baseListing && listing.baseListing.images) || []).filter(
+    (image: any) => image.fileStatus !== "PendingDelete"
+  );
+}
+
+/**
+ * Fails when the submission lost a listing language of the published submission, or the
+ * screenshots of one. The translated listings are maintained by hand, so a commit must
+ * never drop them.
+ */
+async function ensureListingsKept(submissionResource: any): Promise<void> {
+  var published = await getPublishedSubmission();
+  if (!published) {
+    return;
+  }
+  var listings = submissionResource.listings || {};
+  var problems: string[] = [];
+  Object.keys(published.listings || {}).forEach((language) => {
+    if (!listings[language]) {
+      problems.push(`${language}: listing is missing`);
+      return;
+    }
+    var types = (listing: any) =>
+      liveImages(listing).map((image: any) => image.imageType).filter((type: string) => SCREENSHOT_TYPES.indexOf(type) >= 0);
+    types(published.listings[language])
+      .filter((type: string, i: number, all: string[]) => all.indexOf(type) === i)
+      .filter((type: string) => types(listings[language]).indexOf(type) < 0)
+      .forEach((type: string) => problems.push(`${language}: no ${type} images`));
+  });
+  if (problems.length > 0) {
+    throw new Error(
+      `Submission ${submissionResource.id} lost listings of the published submission; nothing was committed:\n` +
+        problems.join("\n")
+    );
+  }
+  console.log(`All ${Object.keys(published.listings || {}).length} published listings are kept`);
+}
+
+/** The listing fields a person edits in Partner Center; release notes are rewritten on commit anyway. */
+const LISTING_FIELDS = ["title", "shortTitle", "description", "shortDescription", "features", "keywords"];
+
+/** The edited content of every listing language, in a form that compares as a string. */
+function listingsFingerprint(submissionResource: any): string {
+  var listings = submissionResource.listings || {};
+  return JSON.stringify(
+    Object.keys(listings)
+      .sort()
+      .map((language) => {
+        var base = (listings[language] && listings[language].baseListing) || {};
+        var images = liveImages(listings[language])
+          .map((image: any) => `${image.imageType}:${image.fileName}`)
+          .sort();
+        return [language, LISTING_FIELDS.map((field) => base[field] || null), images];
+      })
+  );
 }
 
 /**
